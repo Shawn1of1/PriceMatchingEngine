@@ -1,0 +1,111 @@
+class SelectorMaintainer {
+    constructor() {
+        this.selectorVersion = 1;
+        this.selectorFile = 'selectors.json';
+        this.githubRepo = 'your-username/pricepulse-actor';
+    }
+
+    async checkSelectorsValidity() {
+        const retailers = await this.loadSelectorConfig();
+        
+        for (const retailer of retailers) {
+            const health = await this.testRetailerSelectors(retailer);
+            if (health.score < 0.8) {
+                await this.attemptSelectorRecovery(retailer);
+            }
+        }
+    }
+
+    async testRetailerSelectors(retailer) {
+        try {
+            const testResults = await Apify.metamorph('selector-health-check', {
+                retailerConfig: retailer,
+                testUrl: retailer.testUrls[0]
+            });
+
+            return {
+                score: testResults.successRate,
+                failedSelectors: testResults.failedSelectors
+            };
+        } catch (error) {
+            await this.notifySelectorFailure(retailer.name, error);
+            return { score: 0 };
+        }
+    }
+
+    async attemptSelectorRecovery(retailer) {
+        const newSelectors = await this.discoverNewSelectors(retailer);
+        if (newSelectors) {
+            await this.updateSelectorConfig(retailer.name, newSelectors);
+            await this.commitChangesToGitHub();
+            await this.redeployApifyActor();
+        }
+    }
+
+    async discoverNewSelectors(retailer) {
+        // Use AI-powered selector discovery (basic version)
+        const possibleSelectors = {
+            products: ['.product', '.item', '.card'],
+            price: ['.price', '[itemprop="price"]', '.amount'],
+            title: ['h1', 'h2', '[itemprop="name"]']
+        };
+
+        const browser = await puppeteer.launch();
+        const page = await browser.newPage();
+        await page.goto(retailer.testUrls[0]);
+
+        const discovered = {};
+        
+        for (const [key, candidates] of Object.entries(possibleSelectors)) {
+            discovered[key] = await this.findWorkingSelector(page, candidates);
+        }
+
+        await browser.close();
+        return discovered;
+    }
+
+    async findWorkingSelector(page, candidates) {
+        for (const selector of candidates) {
+            try {
+                await page.waitForSelector(selector, { timeout: 5000 });
+                return selector;
+            } catch {
+                continue;
+            }
+        }
+        return null;
+    }
+
+    async updateSelectorConfig(retailerName, newSelectors) {
+        const config = await this.loadSelectorConfig();
+        const retailer = config.find(r => r.name === retailerName);
+        Object.assign(retailer.selectors, newSelectors);
+        retailer.selectorVersion = this.selectorVersion++;
+        
+        await Apify.setValue(this.selectorFile, config);
+    }
+
+    async commitChangesToGitHub() {
+        await Apify.call('github-commit-file', {
+            repo: this.githubRepo,
+            filePath: this.selectorFile,
+            content: JSON.stringify(await this.loadSelectorConfig(), null, 2),
+            commitMessage: `Auto-update selectors ${new Date().toISOString()}`
+        });
+    }
+
+    async redeployApifyActor() {
+        await Apify.call('apify-deploy', {
+            actorId: 'your-actor-id',
+            useLatestCommit: true
+        });
+    }
+
+    async notifySelectorFailure(retailerName, error) {
+        await Apify.call('github-create-issue', {
+            repo: this.githubRepo,
+            title: `Selector failure detected for ${retailerName}`,
+            body: `Error: ${error.message}\n\nNeeds manual investigation`
+        });
+    }
+}
