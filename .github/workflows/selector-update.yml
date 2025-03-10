@@ -1,0 +1,15 @@
+name: Selector Auto-Update
+on:
+  push:
+    paths:
+      - 'selectors.json'
+
+jobs:
+  deploy-apify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Apify
+        uses: apify/gh-action@v1
+        with:
+          actor-id: ${{ secrets.APIFY_ACTOR_ID }}
+          token: ${{ secrets.APIFY_TOKEN }}
