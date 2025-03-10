@@ -1,0 +1,16 @@
+Apify.main(async () => {
+    const selectorMaintainer = new SelectorMaintainer();
+    await selectorMaintainer.checkSelectorsValidity();
+
+    const comparator = new PriceComparator();
+    
+    // In your page handler
+    const products = await extractProducts();
+    for (const product of products) {
+        await comparator.addProduct(product);
+    }
+
+    // Final comparison results
+    const results = comparator.getComparisonResults();
+    await Apify.pushData(results);
+});
